@@ -1,0 +1,24 @@
+# Env and secrets
+.env
+.env.local
+*.env.local
+
+# Binaries
+/user-metadata-service
+*.exe
+
+# Go
+/vendor/
+*.test
+*.out
+coverage.html
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
