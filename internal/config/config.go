@@ -117,17 +117,16 @@ func loadLogConfig() LogConfig {
 	}
 }
 
-// buildDBDSN returns MySQL DSN: DATABASE_URL if set, else built from DB_* env vars.
-// Accepts DB_USERNAME (alias for DB_USER) and DB_DATABASE (alias for DB_NAME) for compatibility.
+// buildDBDSN returns MySQL DSN: DATABASE_URL if set, else built from DB_* and DATABASE (db name). Reads from OS env first.
 func buildDBDSN() string {
 	if v := os.Getenv("DATABASE_URL"); v != "" {
 		return v
 	}
-	user := getEnv("DB_USERNAME", getEnv("DB_USER", "user"))
+	user := getEnv("DB_USER", "user")
 	password := getEnv("DB_PASSWORD", "password")
 	host := getEnv("DB_HOST", "localhost")
 	port := getEnv("DB_PORT", "3306")
-	dbName := getEnv("DB_DATABASE", getEnv("DB_NAME", "users_metadata"))
+	dbName := getEnv("DATABASE", "be_users_metadata_service")
 	charset := getEnv("DB_CHARSET", "utf8mb4")
 	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=True",
 		user, password, host, port, dbName, charset,
