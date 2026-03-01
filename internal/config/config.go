@@ -68,7 +68,7 @@ type ProcessingConfig struct {
 // Load reads configuration from environment variables.
 // Values from the OS environment take precedence; if unset, variables are loaded from .env (if present).
 //
-// Database: same user/host/port for both; DATABASE (service DB), CLASSIFIED8_DATABASE (clas_users). RabbitMQ: RABBITMQ_URL or RABBITMQ_*.
+// Database: same user/host/port for both; DATABASE (default be_users_metadata_service), CLASSIFIED8_DATABASE (default classified8). All values read from OS env first, then .env. RabbitMQ: RABBITMQ_URL or RABBITMQ_*.
 func Load() *Config {
 	loadEnvFile(".env")
 	return &Config{
@@ -87,7 +87,7 @@ func loadEnvFile(path string) {
 }
 
 func loadDBConfig() DBConfig {
-	db1 := getEnv("DATABASE", "users_metadata")
+	db1 := getEnv("DATABASE", "be_users_metadata_service")
 	return DBConfig{
 		DSN:             buildDBDSN(db1),
 		MaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 25),

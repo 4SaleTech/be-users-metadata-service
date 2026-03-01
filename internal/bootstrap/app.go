@@ -3,9 +3,11 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -113,6 +115,10 @@ func New(cfg *config.Config) (*App, error) {
 }
 
 func setupDB(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
+	if cfg.DB.DSN == "" || isDSNMissingDB(cfg.DB.DSN) {
+		log.Error("DATABASE env var is required (service database name)")
+		return nil, fmt.Errorf("DATABASE env var is required")
+	}
 	dbCfg := database.Config{
 		DSN:             cfg.DB.DSN,
 		MaxOpenConns:    cfg.DB.MaxOpenConns,
@@ -132,8 +138,13 @@ func setupDB(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
 	return db, nil
 }
 
+// isDSNMissingDB returns true if the MySQL DSN has no database name (e.g. ends with "/?").
+func isDSNMissingDB(dsn string) bool {
+	return strings.Contains(dsn, "/?")
+}
+
 func setupUsersDB(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
-	if cfg.UsersDB.DSN == "" {
+	if cfg.UsersDB.DSN == "" || isDSNMissingDB(cfg.UsersDB.DSN) {
 		return nil, nil
 	}
 	usersDB, err := database.NewUsersDB(struct {

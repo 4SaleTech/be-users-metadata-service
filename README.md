@@ -46,8 +46,8 @@ Expected event JSON shape: `id`, `type`, `version`, `user_id`, `data` (optional)
 | `DB_PASSWORD` | MySQL password (shared). |
 | `DB_HOST` | MySQL host (shared). |
 | `DB_PORT` | MySQL port (default `3306`, shared). |
-| `DATABASE` | This service’s database (event_sources, metadata_rules, processed_events, failed_events). Default `users_metadata`. |
-| `CLASSIFIED8_DATABASE` | Database containing `clas_users` for meta_data. Default `classified8`. |
+| `DATABASE` | This service’s database (event_sources, metadata_rules, processed_events, failed_events). Default `be_users_metadata_service`. Read from OS env first. |
+| `CLASSIFIED8_DATABASE` | Database containing `clas_users` for meta_data. Default `classified8`. Read from OS env first. Leave unset to use DATABASE for both. |
 | `USERS_DB_TABLE_NAME` | Table name in CLASSIFIED8_DATABASE (default `clas_users`). |
 
 **RabbitMQ** — use `RABBITMQ_URL` (full AMQP URL), or set:
