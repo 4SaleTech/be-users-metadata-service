@@ -22,3 +22,5 @@ coverage.html
 # OS
 .DS_Store
 Thumbs.db
+
+k8s/
