@@ -20,32 +20,33 @@ Go service that consumes events from RabbitMQ, evaluates metadata rules, and app
 
 ## Database (MySQL)
 
-Tables (GORM AutoMigrate):
+The service uses one or two databases:
+
+- **Primary (service) DB**: `event_sources`, `metadata_rules`, `metadata_rule_actions`, `processed_events`, `failed_events`. GORM AutoMigrate runs on this DB only.
+- **Users DB** (optional): The table that holds user rows and `meta_data` (e.g. `clas_users`). If not configured, the primary DB is used for both (single-DB mode). When configured, metadata updates are written to this second DB.
+
+Primary DB tables (GORM AutoMigrate):
 
 - `event_sources` — topic name, enabled.
 - `metadata_rules` — event_type, event_version, enabled, priority, description.
 - `metadata_rule_actions` — rule_id, operation, metadata_key, value_source, value_template, condition_expression, execution_order.
 - `processed_events` — event_id (PK), event_json (JSON), processed_at.
 - `failed_events` — id, event_type, payload (JSON), error_message, created_at, processed_at.
-- `users` — id (CHAR(36)), meta_data (JSON), updated_at.
+- **Users DB** (when separate): table name configurable via `USERS_DB_TABLE_NAME` (default `clas_users`). Expected columns: `id` (CHAR(36)), `meta_data` (JSON), `updated_at`.
 
 Expected event JSON shape: `id`, `type`, `version`, `user_id`, `data` (optional). `user_id` is required for metadata updates.
 
 ## Configuration (env)
 
-**Database** — use `DATABASE_URL` (full MySQL DSN), or set:
+**Database** — two URL env vars (MySQL DSN). This service uses two databases:
 
-| Variable | Default |
-|----------|---------|
-| `DB_USER` | `user` |
-| `DB_PASSWORD` | `password` |
-| `DB_HOST` | `localhost` |
-| `DB_PORT` | `3306` |
-| `DB_NAME` | `users_metadata` |
-| `DB_CHARSET` | `utf8mb4` |
-| `DB_MAX_OPEN_CONNS` | 25 |
-| `DB_MAX_IDLE_CONNS` | 5 |
-| `DB_CONN_MAX_LIFETIME` | 5m |
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | This service’s own database (event_sources, metadata_rules, processed_events, failed_events). |
+| `DATABASE_USERS_URL` | The **classified8** database (contains `clas_users` for meta_data updates). |
+| `USERS_DB_TABLE_NAME` | Table name in the classified8 DB (default `clas_users`). |
+
+Example: `DATABASE_URL=user:password@tcp(host:3306)/users_metadata?charset=utf8mb4&parseTime=True` and `DATABASE_USERS_URL=user:password@tcp(host:3306)/classified8?charset=utf8mb4&parseTime=True`. If `DATABASE_USERS_URL` is empty, the service uses `DATABASE_URL` for both (single-DB).
 
 **RabbitMQ** — use `RABBITMQ_URL` (full AMQP URL), or set:
 

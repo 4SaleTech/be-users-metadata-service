@@ -26,14 +26,15 @@ import (
 
 // App holds the wired application and runs the consumer.
 type App struct {
-	cfg               *config.Config
-	log               *slog.Logger
-	db                *gorm.DB
-	consumer          *infraMessaging.Consumer
-	streamConsumer    *infraMessaging.SuperStreamConsumer
-	handler           *consumerHandler.RabbitMQConsumer
-	eventSrc          ports.EventSourceRepository
-	wg                sync.WaitGroup
+	cfg            *config.Config
+	log            *slog.Logger
+	db             *gorm.DB // primary (service) DB
+	usersDB        *gorm.DB // users DB (clas_users); may be same as db when single-DB)
+	consumer       *infraMessaging.Consumer
+	streamConsumer *infraMessaging.SuperStreamConsumer
+	handler        *consumerHandler.RabbitMQConsumer
+	eventSrc       ports.EventSourceRepository
+	wg             sync.WaitGroup
 }
 
 // New builds and wires the application.
@@ -45,6 +46,17 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, err
 	}
 
+	usersDB, err := setupUsersDB(cfg, log)
+	if err != nil {
+		return nil, err
+	}
+	if usersDB == nil {
+		usersDB = db
+		log.Info("using primary DB for users table (single-DB mode)")
+	} else {
+		log.Info("users DB connected (two-DB mode)", "table", cfg.UsersDB.TableName)
+	}
+
 	consumer, err := infraMessaging.NewConsumer(cfg.RabbitMQ.URL, cfg.RabbitMQ.Prefetch)
 	if err != nil {
 		log.Error("rabbitmq init failed", "error", err)
@@ -53,7 +65,7 @@ func New(cfg *config.Config) (*App, error) {
 
 	txManager := database.NewGormTransactionManager(db)
 	ruleRepo := repository.NewMetadataRuleRepository(db)
-	userRepo := repository.NewUserRepository(db)
+	userRepo := repository.NewUserRepository(usersDB, cfg.UsersDB.TableName)
 	processedEventRepo := repository.NewProcessedEventRepository(db)
 	failedEventRepo := repository.NewFailedEventRepository(db)
 	eventSourceRepo := repository.NewEventSourceRepository(db)
@@ -69,6 +81,7 @@ func New(cfg *config.Config) (*App, error) {
 		cfg:      cfg,
 		log:      log,
 		db:       db,
+		usersDB:  usersDB,
 		consumer: consumer,
 		handler:  handler,
 		eventSrc: eventSourceRepo,
@@ -117,6 +130,32 @@ func setupDB(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
 	}
 	log.Info("database connected")
 	return db, nil
+}
+
+func setupUsersDB(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
+	if cfg.UsersDB.DSN == "" {
+		return nil, nil
+	}
+	usersDB, err := database.NewUsersDB(struct {
+		DSN             string
+		MaxOpenConns    int
+		MaxIdleConns    int
+		ConnMaxLifetime time.Duration
+	}{
+		DSN:             cfg.UsersDB.DSN,
+		MaxOpenConns:    cfg.UsersDB.MaxOpenConns,
+		MaxIdleConns:    cfg.UsersDB.MaxIdleConns,
+		ConnMaxLifetime: cfg.UsersDB.ConnMaxLifetime,
+	})
+	if err != nil {
+		log.Error("users database init failed", "error", err)
+		return nil, err
+	}
+	if err := database.Ping(context.Background(), usersDB); err != nil {
+		log.Error("users database ping failed", "error", err)
+		return nil, err
+	}
+	return usersDB, nil
 }
 
 // Run starts consumer workers and blocks until shutdown.

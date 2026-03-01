@@ -13,9 +13,9 @@ import (
 
 // IdempotencyService checks and records event processing (with or without metadata update).
 type IdempotencyService struct {
-	txManager            ports.TransactionManager
-	processedEventRepo   ports.ProcessedEventRepository
-	userRepo             ports.UserRepository
+	txManager          ports.TransactionManager
+	processedEventRepo ports.ProcessedEventRepository
+	userRepo           ports.UserRepository
 }
 
 // NewIdempotencyService returns a new IdempotencyService.
@@ -44,17 +44,18 @@ func (s *IdempotencyService) RecordProcessedOnly(ctx context.Context, eventID st
 	})
 }
 
-// RecordSuccess updates user metadata and records the event as processed.
+// RecordSuccess updates user metadata (users DB) and records the event as processed (primary DB).
+// With two DBs: update clas_users first, then insert into processed_events in a transaction.
 func (s *IdempotencyService) RecordSuccess(ctx context.Context, userID uuid.UUID, newMeta datatypes.JSON, eventID string, rawPayload []byte) error {
+	if err := s.userRepo.UpdateMetaData(ctx, userID, newMeta); err != nil {
+		return err
+	}
 	pe := &domain.ProcessedEvent{
 		EventID:     eventID,
 		EventJSON:   rawPayload,
 		ProcessedAt: time.Now().UTC(),
 	}
 	return s.txManager.WithTransaction(ctx, func(tx *gorm.DB) error {
-		if err := s.userRepo.UpdateMetaDataTx(tx, userID, newMeta); err != nil {
-			return err
-		}
 		return s.processedEventRepo.CreateTx(tx, pe)
 	})
 }

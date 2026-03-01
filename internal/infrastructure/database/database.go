@@ -17,8 +17,31 @@ type Config struct {
 	ConnMaxLifetime time.Duration
 }
 
-// NewDB creates a GORM DB and runs AutoMigrate for all entity tables.
+// NewDB creates a GORM DB for the primary (service) database and runs AutoMigrate for service tables only.
+// Does not migrate User/clas_users; that table lives in the users DB (see NewUsersDB).
 func NewDB(cfg Config) (*gorm.DB, error) {
+	db, err := gorm.Open(mysql.Open(cfg.DSN), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	configureConnPool(db, cfg)
+	if err := autoMigratePrimary(db); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+// NewUsersDB creates a GORM DB for the users database (clas_users table). No AutoMigrate.
+// Use when DSN is non-empty (two-DB setup). Caller can use primary DB when DSN is empty (single-DB).
+func NewUsersDB(cfg struct {
+	DSN             string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}) (*gorm.DB, error) {
+	if cfg.DSN == "" {
+		return nil, nil
+	}
 	db, err := gorm.Open(mysql.Open(cfg.DSN), &gorm.Config{})
 	if err != nil {
 		return nil, err
@@ -36,20 +59,32 @@ func NewDB(cfg Config) (*gorm.DB, error) {
 	if cfg.ConnMaxLifetime > 0 {
 		sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	}
-	if err := autoMigrate(db); err != nil {
-		return nil, err
-	}
 	return db, nil
 }
 
-func autoMigrate(db *gorm.DB) error {
+func configureConnPool(db *gorm.DB, cfg Config) {
+	sqlDB, _ := db.DB()
+	if sqlDB == nil {
+		return
+	}
+	if cfg.MaxOpenConns > 0 {
+		sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	}
+	if cfg.MaxIdleConns > 0 {
+		sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	}
+	if cfg.ConnMaxLifetime > 0 {
+		sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	}
+}
+
+func autoMigratePrimary(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&entity.EventSource{},
 		&entity.MetadataRule{},
 		&entity.MetadataRuleAction{},
 		&entity.ProcessedEvent{},
 		&entity.FailedEvent{},
-		&entity.User{},
 	)
 }
 

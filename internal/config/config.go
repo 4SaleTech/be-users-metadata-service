@@ -11,11 +11,21 @@ import (
 
 // Config holds application configuration.
 type Config struct {
-	DB         DBConfig
+	DB         DBConfig      // Primary DB: event_sources, metadata_rules, processed_events, failed_events
+	UsersDB    UsersDBConfig // Users DB: clas_users (or configured table) for meta_data updates
 	RabbitMQ   RabbitMQConfig
 	Server     ServerConfig
 	Processing ProcessingConfig
 	Log        LogConfig
+}
+
+// UsersDBConfig holds the second DB connection used to update the users/clas_users table.
+type UsersDBConfig struct {
+	DSN             string
+	TableName       string // e.g. "clas_users"
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
 }
 
 // LogConfig holds logging settings (LOG_LEVEL: debug, info, warn, error).
@@ -44,7 +54,7 @@ type RabbitMQConfig struct {
 	StreamPort      int
 }
 
-// ServerConfig holds HTTP/graceful shutdown settings.
+// ServerConfig holds graceful shutdown settings.
 type ServerConfig struct {
 	ShutdownTimeout time.Duration
 }
@@ -58,12 +68,12 @@ type ProcessingConfig struct {
 // Load reads configuration from environment variables.
 // Values from the OS environment take precedence; if unset, variables are loaded from .env (if present).
 //
-// Database: use DATABASE_URL, or build from DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME.
-// RabbitMQ: use RABBITMQ_URL, or build from RABBITMQ_USER, RABBITMQ_PASSWORD, RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_VHOST.
+// Database: DATABASE_URL (primary), DATABASE_USERS_URL (optional, for clas_users). RabbitMQ: RABBITMQ_URL or RABBITMQ_*.
 func Load() *Config {
 	loadEnvFile(".env")
 	return &Config{
 		DB:         loadDBConfig(),
+		UsersDB:    loadUsersDBConfig(),
 		RabbitMQ:   loadRabbitMQConfig(),
 		Server:     loadServerConfig(),
 		Processing: loadProcessingConfig(),
@@ -78,10 +88,21 @@ func loadEnvFile(path string) {
 
 func loadDBConfig() DBConfig {
 	return DBConfig{
-		DSN:             buildDBDSN(),
+		DSN:             getEnv("DATABASE_URL", ""),
 		MaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 25),
 		MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
 		ConnMaxLifetime: getEnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
+	}
+}
+
+// loadUsersDBConfig loads config for the DB that holds clas_users. DATABASE_USERS_URL only; if empty, single-DB mode.
+func loadUsersDBConfig() UsersDBConfig {
+	return UsersDBConfig{
+		DSN:             getEnv("DATABASE_USERS_URL", ""),
+		TableName:       getEnv("USERS_DB_TABLE_NAME", "clas_users"),
+		MaxOpenConns:    getEnvInt("USERS_DB_MAX_OPEN_CONNS", 10),
+		MaxIdleConns:    getEnvInt("USERS_DB_MAX_IDLE_CONNS", 3),
+		ConnMaxLifetime: getEnvDuration("USERS_DB_CONN_MAX_LIFETIME", 5*time.Minute),
 	}
 }
 
@@ -115,23 +136,6 @@ func loadLogConfig() LogConfig {
 	return LogConfig{
 		Level: getEnv("LOG_LEVEL", "info"),
 	}
-}
-
-// buildDBDSN returns MySQL DSN: DATABASE_URL if set, else built from DB_* env vars.
-// Accepts DB_USERNAME (alias for DB_USER) and DB_DATABASE (alias for DB_NAME) for compatibility.
-func buildDBDSN() string {
-	if v := os.Getenv("DATABASE_URL"); v != "" {
-		return v
-	}
-	user := getEnv("DB_USERNAME", getEnv("DB_USER", "user"))
-	password := getEnv("DB_PASSWORD", "password")
-	host := getEnv("DB_HOST", "localhost")
-	port := getEnv("DB_PORT", "3306")
-	dbName := getEnv("DB_DATABASE", getEnv("DB_NAME", "users_metadata"))
-	charset := getEnv("DB_CHARSET", "utf8mb4")
-	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=True",
-		user, password, host, port, dbName, charset,
-	)
 }
 
 // buildRabbitMQURL returns AMQP URL: RABBITMQ_URL if set, else built from RABBITMQ_* env vars.
