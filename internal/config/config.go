@@ -68,7 +68,7 @@ type ProcessingConfig struct {
 // Load reads configuration from environment variables.
 // Values from the OS environment take precedence; if unset, variables are loaded from .env (if present).
 //
-// Database: DATABASE_URL (primary), DATABASE_USERS_URL (optional, for clas_users). RabbitMQ: RABBITMQ_URL or RABBITMQ_*.
+// Database: same user/host/port for both; DATABASE (service DB), CLASSIFIED8_DATABASE (clas_users). RabbitMQ: RABBITMQ_URL or RABBITMQ_*.
 func Load() *Config {
 	loadEnvFile(".env")
 	return &Config{
@@ -87,23 +87,37 @@ func loadEnvFile(path string) {
 }
 
 func loadDBConfig() DBConfig {
+	db1 := getEnv("DATABASE", "users_metadata")
 	return DBConfig{
-		DSN:             getEnv("DATABASE_URL", ""),
+		DSN:             buildDBDSN(db1),
 		MaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 25),
 		MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
 		ConnMaxLifetime: getEnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
 	}
 }
 
-// loadUsersDBConfig loads config for the DB that holds clas_users. DATABASE_USERS_URL only; if empty, single-DB mode.
+// loadUsersDBConfig loads config for classified8 (clas_users). Same user/host/port as DATABASE.
 func loadUsersDBConfig() UsersDBConfig {
+	db2 := getEnv("CLASSIFIED8_DATABASE", "classified8")
 	return UsersDBConfig{
-		DSN:             getEnv("DATABASE_USERS_URL", ""),
+		DSN:             buildDBDSN(db2),
 		TableName:       getEnv("USERS_DB_TABLE_NAME", "clas_users"),
 		MaxOpenConns:    getEnvInt("USERS_DB_MAX_OPEN_CONNS", 10),
 		MaxIdleConns:    getEnvInt("USERS_DB_MAX_IDLE_CONNS", 3),
 		ConnMaxLifetime: getEnvDuration("USERS_DB_CONN_MAX_LIFETIME", 5*time.Minute),
 	}
+}
+
+// buildDBDSN builds a MySQL DSN from shared connection env vars and the given database name.
+func buildDBDSN(dbName string) string {
+	user := getEnv("DB_USER", "user")
+	password := getEnv("DB_PASSWORD", "password")
+	host := getEnv("DB_HOST", "localhost")
+	port := getEnv("DB_PORT", "3306")
+	charset := getEnv("DB_CHARSET", "utf8mb4")
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=True",
+		user, password, host, port, dbName, charset,
+	)
 }
 
 func loadRabbitMQConfig() RabbitMQConfig {

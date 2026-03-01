@@ -38,15 +38,17 @@ Expected event JSON shape: `id`, `type`, `version`, `user_id`, `data` (optional)
 
 ## Configuration (env)
 
-**Database** — two URL env vars (MySQL DSN). This service uses two databases:
+**Database** — same user, host, and port for both; only the database name differs:
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_URL` | This service’s own database (event_sources, metadata_rules, processed_events, failed_events). |
-| `DATABASE_USERS_URL` | The **classified8** database (contains `clas_users` for meta_data updates). |
-| `USERS_DB_TABLE_NAME` | Table name in the classified8 DB (default `clas_users`). |
-
-Example: `DATABASE_URL=user:password@tcp(host:3306)/users_metadata?charset=utf8mb4&parseTime=True` and `DATABASE_USERS_URL=user:password@tcp(host:3306)/classified8?charset=utf8mb4&parseTime=True`. If `DATABASE_USERS_URL` is empty, the service uses `DATABASE_URL` for both (single-DB).
+| `DB_USER` | MySQL user (shared). |
+| `DB_PASSWORD` | MySQL password (shared). |
+| `DB_HOST` | MySQL host (shared). |
+| `DB_PORT` | MySQL port (default `3306`, shared). |
+| `DATABASE` | This service’s database (event_sources, metadata_rules, processed_events, failed_events). Default `users_metadata`. |
+| `CLASSIFIED8_DATABASE` | Database containing `clas_users` for meta_data. Default `classified8`. |
+| `USERS_DB_TABLE_NAME` | Table name in CLASSIFIED8_DATABASE (default `clas_users`). |
 
 **RabbitMQ** — use `RABBITMQ_URL` (full AMQP URL), or set:
 
