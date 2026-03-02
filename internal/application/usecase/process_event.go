@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/be-users-metadata-service/internal/application/ports"
 	"github.com/be-users-metadata-service/internal/application/service"
 	"github.com/be-users-metadata-service/internal/domain"
-	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -70,7 +70,7 @@ func (u *ProcessEvent) ProcessEvent(ctx context.Context, event domain.Event, raw
 		_ = u.failedEventRepo.CreateFromError(ctx, event.Type, rawPayload, err.Error())
 		return nil
 	}
-	log.Debug("loaded user", "user_id", userID.String())
+	log.Debug("loaded user", "user_id", userID)
 
 	rules, err := u.ruleRepo.FindByEventTypeAndVersion(ctx, event.Type, event.Version)
 	if err != nil {
@@ -84,7 +84,7 @@ func (u *ProcessEvent) ProcessEvent(ctx context.Context, event domain.Event, raw
 		return nil
 	}
 
-	currentMeta, metaMap, err := u.getUserMetaAndMap(ctx, *userID)
+	currentMeta, metaMap, err := u.getUserMetaAndMap(ctx, userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			log.Warn("user not found, recording failed event")
@@ -117,7 +117,7 @@ func (u *ProcessEvent) ProcessEvent(ctx context.Context, event domain.Event, raw
 		return err
 	}
 
-	if err := u.idempotency.RecordSuccess(ctx, *userID, newMeta, eventID, rawPayload); err != nil {
+	if err := u.idempotency.RecordSuccess(ctx, userID, newMeta, eventID, rawPayload); err != nil {
 		log.Error("record success failed", "error", err)
 		return err
 	}
@@ -125,14 +125,14 @@ func (u *ProcessEvent) ProcessEvent(ctx context.Context, event domain.Event, raw
 	return nil
 }
 
-func (u *ProcessEvent) resolveUserID(event domain.Event) (*uuid.UUID, error) {
-	if event.UserID == nil || *event.UserID == uuid.Nil {
-		return nil, errMissingUserID
+func (u *ProcessEvent) resolveUserID(event domain.Event) (string, error) {
+	if strings.TrimSpace(event.UserID) == "" {
+		return "", errMissingUserID
 	}
 	return event.UserID, nil
 }
 
-func (u *ProcessEvent) getUserMetaAndMap(ctx context.Context, userID uuid.UUID) (datatypes.JSON, map[string]interface{}, error) {
+func (u *ProcessEvent) getUserMetaAndMap(ctx context.Context, userID string) (datatypes.JSON, map[string]interface{}, error) {
 	meta, err := u.userRepo.GetMetaData(ctx, userID)
 	if err != nil {
 		return nil, nil, err

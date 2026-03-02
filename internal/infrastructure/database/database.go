@@ -17,8 +17,24 @@ type Config struct {
 	ConnMaxLifetime time.Duration
 }
 
-// NewDB creates a GORM DB and runs AutoMigrate for all entity tables.
+// NewDB creates a GORM DB and runs AutoMigrate for service tables (not clas_users).
 func NewDB(cfg Config) (*gorm.DB, error) {
+	db, err := openDB(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := autoMigrate(db); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+// NewDBNoMigrate creates a GORM DB without running migrations. Use for the classified8 DB (clas_users).
+func NewDBNoMigrate(cfg Config) (*gorm.DB, error) {
+	return openDB(cfg)
+}
+
+func openDB(cfg Config) (*gorm.DB, error) {
 	db, err := gorm.Open(mysql.Open(cfg.DSN), &gorm.Config{})
 	if err != nil {
 		return nil, err
@@ -36,12 +52,10 @@ func NewDB(cfg Config) (*gorm.DB, error) {
 	if cfg.ConnMaxLifetime > 0 {
 		sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	}
-	if err := autoMigrate(db); err != nil {
-		return nil, err
-	}
 	return db, nil
 }
 
+// autoMigrate runs only on the service DB. Do not include User/clas_users — that table lives in another DB and must not be created or altered by this service.
 func autoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&entity.EventSource{},
@@ -49,7 +63,6 @@ func autoMigrate(db *gorm.DB) error {
 		&entity.MetadataRuleAction{},
 		&entity.ProcessedEvent{},
 		&entity.FailedEvent{},
-		&entity.User{},
 	)
 }
 

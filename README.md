@@ -63,11 +63,9 @@ Expected event JSON shape: `id`, `type`, `version`, `user_id`, `data` (optional)
 | Variable | Default |
 |----------|---------|
 | `RABBITMQ_STREAM_ENABLED` | `false` |
-| `RABBITMQ_SUPER_STREAM_NAME` | — |
-| `RABBITMQ_STREAM_HOST` | same as `RABBITMQ_HOST` |
-| `RABBITMQ_STREAM_PORT` | `5552` |
+| `RABBITMQ_STREAM_PORT` | `5552` (host = `RABBITMQ_HOST`) |
 
-When `RABBITMQ_STREAM_ENABLED=true` and `RABBITMQ_SUPER_STREAM_NAME` is set, the service consumes from that super stream (same handler as AMQP). Create the super stream in RabbitMQ first (Management UI or `rabbitmqadmin`); use stream protocol host/port for the stream connection.
+When `RABBITMQ_STREAM_ENABLED=true`, the service creates one super stream consumer per enabled row in **event_sources** (stream name = `topic_name`). Add a row with e.g. `topic_name = 'users-metadata'` to consume from that super stream.
 
 **Other**
 
@@ -109,19 +107,15 @@ export RABBITMQ_URL="amqp://4sale-rabbitmq-admin:YOUR_PASSWORD@rabbitmq-stg.rabb
 # export RABBITMQ_PASSWORD=YOUR_PASSWORD
 ```
 
-To test with a **super stream**: create the super stream in RabbitMQ (e.g. name `user_events` with the desired partitions), then run:
+To test with a **super stream**: create the super stream in RabbitMQ, add a row to **event_sources** with `topic_name = 'users-metadata'` (or your stream name), then run:
 
 ```bash
 export RABBITMQ_STREAM_ENABLED=true
-export RABBITMQ_SUPER_STREAM_NAME=user_events
-export RABBITMQ_STREAM_HOST=localhost   # or your broker host; stream uses port 5552
 export RABBITMQ_STREAM_PORT=5552
-export RABBITMQ_USER=4sale-rabbitmq-admin
-export RABBITMQ_PASSWORD=YOUR_PASSWORD
-go run ./cmd/user-metadata-service
+go run ./cmd
 ```
 
-The service will consume from the super stream and process events with the same idempotency and metadata rules as AMQP.
+The service will consume from each super stream named in `event_sources` (same handler as AMQP).
 
 ## Operations
 

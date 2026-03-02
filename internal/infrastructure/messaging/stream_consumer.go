@@ -19,22 +19,25 @@ type StreamConsumerConfig struct {
 
 // SuperStreamConsumer consumes from a RabbitMQ super stream and calls handler for each message body.
 type SuperStreamConsumer struct {
-	env              *stream.Environment
-	consumer         *stream.SuperStreamConsumer
-	handler          func(context.Context, []byte) error
-	log              *slog.Logger
-	superStreamName  string
-	consumerName     string
+	env             *stream.Environment
+	consumer        *stream.SuperStreamConsumer
+	handler         func(context.Context, []byte) error
+	log             *slog.Logger
+	superStreamName string
+	consumerName    string
 }
 
 // NewSuperStreamConsumer creates a stream environment and a super stream consumer (not started).
+// When the broker advertises internal hostnames (e.g. in Kubernetes), use AddressResolver so the client connects to cfg.Host:cfg.Port instead.
 func NewSuperStreamConsumer(cfg StreamConsumerConfig, superStreamName, consumerName string, handler func(context.Context, []byte) error, log *slog.Logger) (*SuperStreamConsumer, error) {
+	resolver := stream.AddressResolver{Host: cfg.Host, Port: cfg.Port}
 	env, err := stream.NewEnvironment(
 		stream.NewEnvironmentOptions().
 			SetHost(cfg.Host).
 			SetPort(cfg.Port).
 			SetUser(cfg.User).
-			SetPassword(cfg.Password),
+			SetPassword(cfg.Password).
+			SetAddressResolver(resolver),
 	)
 	if err != nil {
 		return nil, err

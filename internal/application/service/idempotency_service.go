@@ -6,16 +6,15 @@ import (
 
 	"github.com/be-users-metadata-service/internal/application/ports"
 	"github.com/be-users-metadata-service/internal/domain"
-	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
 // IdempotencyService checks and records event processing (with or without metadata update).
 type IdempotencyService struct {
-	txManager            ports.TransactionManager
-	processedEventRepo   ports.ProcessedEventRepository
-	userRepo             ports.UserRepository
+	txManager          ports.TransactionManager
+	processedEventRepo ports.ProcessedEventRepository
+	userRepo           ports.UserRepository
 }
 
 // NewIdempotencyService returns a new IdempotencyService.
@@ -44,17 +43,17 @@ func (s *IdempotencyService) RecordProcessedOnly(ctx context.Context, eventID st
 	})
 }
 
-// RecordSuccess updates user metadata and records the event as processed.
-func (s *IdempotencyService) RecordSuccess(ctx context.Context, userID uuid.UUID, newMeta datatypes.JSON, eventID string, rawPayload []byte) error {
+// RecordSuccess updates user metadata (classified8) then records the event as processed (metadata DB). Two DBs, so no single transaction.
+func (s *IdempotencyService) RecordSuccess(ctx context.Context, userID string, newMeta datatypes.JSON, eventID string, rawPayload []byte) error {
+	if err := s.userRepo.UpdateMetaData(ctx, userID, newMeta); err != nil {
+		return err
+	}
 	pe := &domain.ProcessedEvent{
 		EventID:     eventID,
 		EventJSON:   rawPayload,
 		ProcessedAt: time.Now().UTC(),
 	}
 	return s.txManager.WithTransaction(ctx, func(tx *gorm.DB) error {
-		if err := s.userRepo.UpdateMetaDataTx(tx, userID, newMeta); err != nil {
-			return err
-		}
 		return s.processedEventRepo.CreateTx(tx, pe)
 	})
 }

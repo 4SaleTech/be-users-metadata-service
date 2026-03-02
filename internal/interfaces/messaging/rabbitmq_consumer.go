@@ -32,7 +32,8 @@ func (h *RabbitMQConsumer) Handle(ctx context.Context, body []byte) error {
 	var event domain.Event
 	if err := json.Unmarshal(body, &event); err != nil {
 		h.log.Warn("parse failed, recording failed event", "error", err.Error())
-		_ = h.failedEventRepo.CreateFromError(ctx, "unknown", body, "invalid json: "+err.Error())
+		eventType := eventTypeFromPayload(body)
+		_ = h.failedEventRepo.CreateFromError(ctx, eventType, body, "invalid json: "+err.Error())
 		return nil
 	}
 	h.log.Debug("message parsed", "event_type", event.Type, "event_id", event.EventID())
@@ -41,4 +42,22 @@ func (h *RabbitMQConsumer) Handle(ctx context.Context, body []byte) error {
 		return err
 	}
 	return nil
+}
+
+// eventTypeFromPayload tries to read event_type or type from raw JSON so failed_events.event_type is set correctly.
+func eventTypeFromPayload(body []byte) string {
+	var raw struct {
+		Type      string `json:"type"`
+		EventType string `json:"event_type"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "unknown"
+	}
+	if raw.EventType != "" {
+		return raw.EventType
+	}
+	if raw.Type != "" {
+		return raw.Type
+	}
+	return "unknown"
 }

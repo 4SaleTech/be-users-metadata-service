@@ -26,14 +26,15 @@ import (
 
 // App holds the wired application and runs the consumer.
 type App struct {
-	cfg               *config.Config
-	log               *slog.Logger
-	db                *gorm.DB
-	consumer          *infraMessaging.Consumer
-	streamConsumer    *infraMessaging.SuperStreamConsumer
-	handler           *consumerHandler.RabbitMQConsumer
-	eventSrc          ports.EventSourceRepository
-	wg                sync.WaitGroup
+	cfg             *config.Config
+	log             *slog.Logger
+	db              *gorm.DB
+	usersDB         *gorm.DB // classified8 (clas_users)
+	consumer        *infraMessaging.Consumer
+	streamConsumers []*infraMessaging.SuperStreamConsumer
+	handler         *consumerHandler.RabbitMQConsumer
+	eventSrc        ports.EventSourceRepository
+	wg              sync.WaitGroup
 }
 
 // New builds and wires the application.
@@ -41,6 +42,10 @@ func New(cfg *config.Config) (*App, error) {
 	log := logger.New(logger.LevelFromString(cfg.Log.Level))
 
 	db, err := setupDB(cfg, log)
+	if err != nil {
+		return nil, err
+	}
+	usersDB, err := setupUsersDB(cfg, log)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +58,7 @@ func New(cfg *config.Config) (*App, error) {
 
 	txManager := database.NewGormTransactionManager(db)
 	ruleRepo := repository.NewMetadataRuleRepository(db)
-	userRepo := repository.NewUserRepository(db)
+	userRepo := repository.NewUserRepository(usersDB)
 	processedEventRepo := repository.NewProcessedEventRepository(db)
 	failedEventRepo := repository.NewFailedEventRepository(db)
 	eventSourceRepo := repository.NewEventSourceRepository(db)
@@ -69,31 +74,10 @@ func New(cfg *config.Config) (*App, error) {
 		cfg:      cfg,
 		log:      log,
 		db:       db,
+		usersDB:  usersDB,
 		consumer: consumer,
 		handler:  handler,
 		eventSrc: eventSourceRepo,
-	}
-
-	if cfg.RabbitMQ.StreamEnabled && cfg.RabbitMQ.SuperStreamName != "" {
-		streamCfg := infraMessaging.StreamConsumerConfig{
-			Host:     cfg.RabbitMQ.StreamHost,
-			Port:     cfg.RabbitMQ.StreamPort,
-			User:     cfg.RabbitMQ.User,
-			Password: cfg.RabbitMQ.Password,
-		}
-		streamConsumer, err := infraMessaging.NewSuperStreamConsumer(
-			streamCfg,
-			cfg.RabbitMQ.SuperStreamName,
-			"user-metadata-service",
-			handler.Handle,
-			log,
-		)
-		if err != nil {
-			log.Error("super stream consumer init failed", "error", err)
-			_ = consumer.Close()
-			return nil, err
-		}
-		app.streamConsumer = streamConsumer
 	}
 
 	return app, nil
@@ -119,6 +103,26 @@ func setupDB(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
 	return db, nil
 }
 
+func setupUsersDB(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
+	dbCfg := database.Config{
+		DSN:             cfg.UsersDB.DSN,
+		MaxOpenConns:    cfg.UsersDB.MaxOpenConns,
+		MaxIdleConns:    cfg.UsersDB.MaxIdleConns,
+		ConnMaxLifetime: cfg.UsersDB.ConnMaxLifetime,
+	}
+	db, err := database.NewDBNoMigrate(dbCfg)
+	if err != nil {
+		log.Error("users database init failed", "error", err)
+		return nil, err
+	}
+	if err := database.Ping(context.Background(), db); err != nil {
+		log.Error("users database ping failed", "error", err)
+		return nil, err
+	}
+	log.Info("users database (classified8) connected")
+	return db, nil
+}
+
 // Run starts consumer workers and blocks until shutdown.
 func (a *App) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -135,45 +139,71 @@ func (a *App) Run() error {
 	cancel()
 	a.wg.Wait()
 	_ = a.consumer.Close()
-	if a.streamConsumer != nil {
-		_ = a.streamConsumer.Close()
+	for _, sc := range a.streamConsumers {
+		_ = sc.Close()
 	}
 	a.log.Info("shutdown complete")
 	return nil
 }
 
 func (a *App) runConsumerWorkers(ctx context.Context) error {
-	if a.streamConsumer != nil {
-		a.wg.Add(1)
-		go func() {
-			defer a.wg.Done()
-			a.log.Info("super stream consumer started", "stream", a.cfg.RabbitMQ.SuperStreamName)
-			// SuperStreamConsumer runs until Close(); block until ctx is done then close.
-			<-ctx.Done()
-			_ = a.streamConsumer.Close()
-		}()
-	}
-
 	sources, err := a.eventSrc.ListEnabled(ctx)
 	if err != nil {
 		return err
 	}
-	consumeHandler := a.makeAMQPHandler()
-	for _, src := range sources {
-		queueName := "user_metadata_" + sanitizeQueueName(src.TopicName)
-		if err := a.consumer.EnsureQueue(src.TopicName, queueName, "#"); err != nil {
-			a.log.Warn("ensure queue failed", "topic", src.TopicName, "error", err)
-			continue
+
+	// Super stream consumers: one per event source (stream name = topic_name from event_sources)
+	if a.cfg.RabbitMQ.StreamEnabled {
+		streamCfg := infraMessaging.StreamConsumerConfig{
+			Host:     a.cfg.RabbitMQ.Host,
+			Port:     a.cfg.RabbitMQ.StreamPort,
+			User:     a.cfg.RabbitMQ.User,
+			Password: a.cfg.RabbitMQ.Password,
 		}
-		a.wg.Add(1)
-		go func(qName string) {
-			defer a.wg.Done()
-			if err := a.consumer.Consume(ctx, qName, consumeHandler); err != nil && ctx.Err() == nil {
-				a.log.Error("consume failed", "queue", qName, "error", err)
+		for _, src := range sources {
+			sc, err := infraMessaging.NewSuperStreamConsumer(
+				streamCfg,
+				src.TopicName,
+				"user-metadata-service",
+				a.handler.Handle,
+				a.log,
+			)
+			if err != nil {
+				a.log.Warn("super stream consumer init failed", "stream", src.TopicName, "error", err)
+				continue
 			}
-		}(queueName)
+			a.streamConsumers = append(a.streamConsumers, sc)
+			a.wg.Add(1)
+			streamName := src.TopicName
+			consumerToClose := sc
+			go func() {
+				defer a.wg.Done()
+				a.log.Info("super stream consumer started", "stream", streamName)
+				<-ctx.Done()
+				_ = consumerToClose.Close()
+			}()
+		}
 	}
-	a.log.Info("user-metadata-service started", "sources", len(sources))
+
+	// AMQP consumers: only when stream is disabled (stream and AMQP both use event_sources; same name can be a super stream with direct exchange, so we don't declare topic exchange when stream enabled)
+	if !a.cfg.RabbitMQ.StreamEnabled {
+		consumeHandler := a.makeAMQPHandler()
+		for _, src := range sources {
+			queueName := "user_metadata_" + sanitizeQueueName(src.TopicName)
+			if err := a.consumer.EnsureQueue(src.TopicName, queueName, "#"); err != nil {
+				a.log.Warn("ensure queue failed", "topic", src.TopicName, "error", err)
+				continue
+			}
+			a.wg.Add(1)
+			go func(qName string) {
+				defer a.wg.Done()
+				if err := a.consumer.Consume(ctx, qName, consumeHandler); err != nil && ctx.Err() == nil {
+					a.log.Error("consume failed", "queue", qName, "error", err)
+				}
+			}(queueName)
+		}
+	}
+	a.log.Info("user-metadata-service started", "sources", len(sources), "stream_enabled", a.cfg.RabbitMQ.StreamEnabled)
 	return nil
 }
 

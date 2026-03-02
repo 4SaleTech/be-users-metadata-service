@@ -12,6 +12,7 @@ import (
 // Config holds application configuration.
 type Config struct {
 	DB         DBConfig
+	UsersDB    DBConfig // classified8 (clas_users); same host/user, different database name
 	RabbitMQ   RabbitMQConfig
 	Server     ServerConfig
 	Processing ProcessingConfig
@@ -34,14 +35,13 @@ type DBConfig struct {
 // RabbitMQConfig holds RabbitMQ connection settings (from env).
 // AMQP (port 5672) uses URL or RABBITMQ_* vars. Stream/Super Stream (port 5552) uses Stream* and same user/password.
 type RabbitMQConfig struct {
-	URL             string
-	Prefetch        int
-	User            string
-	Password        string
-	StreamEnabled   bool
-	SuperStreamName string
-	StreamHost      string
-	StreamPort      int
+	URL           string
+	Prefetch      int
+	User          string
+	Password      string
+	Host          string // RABBITMQ_HOST (used for AMQP URL and for stream)
+	StreamEnabled bool
+	StreamPort    int
 }
 
 // ServerConfig holds HTTP/graceful shutdown settings.
@@ -64,6 +64,7 @@ func Load() *Config {
 	loadEnvFile(".env")
 	return &Config{
 		DB:         loadDBConfig(),
+		UsersDB:    loadUsersDBConfig(),
 		RabbitMQ:   loadRabbitMQConfig(),
 		Server:     loadServerConfig(),
 		Processing: loadProcessingConfig(),
@@ -78,23 +79,32 @@ func loadEnvFile(path string) {
 
 func loadDBConfig() DBConfig {
 	return DBConfig{
-		DSN:             buildDBDSN(),
+		DSN:             buildDBDSN(getEnv("DATABASE", "be_users_metadata_service")),
 		MaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 25),
 		MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
 		ConnMaxLifetime: getEnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
 	}
 }
 
+// loadUsersDBConfig loads config for classified8 (clas_users). Same host/user as primary DB.
+func loadUsersDBConfig() DBConfig {
+	return DBConfig{
+		DSN:             buildDBDSN(getEnv("CLASSIFIED8_DATABASE", "classified8")),
+		MaxOpenConns:    getEnvInt("USERS_DB_MAX_OPEN_CONNS", 10),
+		MaxIdleConns:    getEnvInt("USERS_DB_MAX_IDLE_CONNS", 3),
+		ConnMaxLifetime: getEnvDuration("USERS_DB_CONN_MAX_LIFETIME", 5*time.Minute),
+	}
+}
+
 func loadRabbitMQConfig() RabbitMQConfig {
 	return RabbitMQConfig{
-		URL:             buildRabbitMQURL(),
-		Prefetch:        getEnvInt("RABBITMQ_PREFETCH", 10),
-		User:            getEnv("RABBITMQ_USER", "guest"),
-		Password:        getEnv("RABBITMQ_PASSWORD", "guest"),
-		StreamEnabled:   getEnv("RABBITMQ_STREAM_ENABLED", "false") == "true",
-		SuperStreamName: getEnv("RABBITMQ_SUPER_STREAM_NAME", ""),
-		StreamHost:      getEnv("RABBITMQ_STREAM_HOST", getEnv("RABBITMQ_HOST", "localhost")),
-		StreamPort:      getEnvInt("RABBITMQ_STREAM_PORT", 5552),
+		URL:           buildRabbitMQURL(),
+		Prefetch:      getEnvInt("RABBITMQ_PREFETCH", 10),
+		User:          getEnv("RABBITMQ_USER", "guest"),
+		Password:      getEnv("RABBITMQ_PASSWORD", "guest"),
+		Host:          getEnv("RABBITMQ_HOST", "localhost"),
+		StreamEnabled: getEnv("RABBITMQ_STREAM_ENABLED", "false") == "true",
+		StreamPort:    getEnvInt("RABBITMQ_STREAM_PORT", 5552),
 	}
 }
 
@@ -117,16 +127,15 @@ func loadLogConfig() LogConfig {
 	}
 }
 
-// buildDBDSN returns MySQL DSN: DATABASE_URL if set, else built from DB_* and DATABASE (db name). Reads from OS env first.
-func buildDBDSN() string {
-	if v := os.Getenv("DATABASE_URL"); v != "" {
-		return v
+// buildDBDSN returns MySQL DSN for the given database name using DB_USER, DB_PASSWORD, DB_HOST, DB_PORT. DATABASE_URL overrides only for primary DB (when dbName is the default).
+func buildDBDSN(dbName string) string {
+	if dbName == getEnv("DATABASE", "be_users_metadata_service") && os.Getenv("DATABASE_URL") != "" {
+		return os.Getenv("DATABASE_URL")
 	}
 	user := getEnv("DB_USER", "user")
 	password := getEnv("DB_PASSWORD", "password")
 	host := getEnv("DB_HOST", "localhost")
 	port := getEnv("DB_PORT", "3306")
-	dbName := getEnv("DATABASE", "be_users_metadata_service")
 	charset := getEnv("DB_CHARSET", "utf8mb4")
 	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=True",
 		user, password, host, port, dbName, charset,
