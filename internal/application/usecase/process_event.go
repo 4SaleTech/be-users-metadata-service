@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -10,6 +12,7 @@ import (
 	"github.com/be-users-metadata-service/internal/application/ports"
 	"github.com/be-users-metadata-service/internal/application/service"
 	"github.com/be-users-metadata-service/internal/domain"
+	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -50,7 +53,7 @@ func NewProcessEvent(
 
 // ProcessEvent handles one event (idempotent). Returns nil to ack, or error to nack.
 func (u *ProcessEvent) ProcessEvent(ctx context.Context, event domain.Event, rawPayload []byte) error {
-	eventID := event.EventID()
+	eventID := idempotencyKey(&event, rawPayload)
 	log := u.log.With("event_id", eventID, "event_type", event.Type)
 
 	log.Debug("checking idempotency")
@@ -130,6 +133,18 @@ func (u *ProcessEvent) resolveUserID(event domain.Event) (string, error) {
 		return "", errMissingUserID
 	}
 	return event.UserID, nil
+}
+
+// idempotencyKey returns event.ID if set; otherwise a deterministic hash of the payload so same event = same key.
+func idempotencyKey(event *domain.Event, rawPayload []byte) string {
+	if event != nil && strings.TrimSpace(event.ID) != "" {
+		return event.ID
+	}
+	if len(rawPayload) == 0 {
+		return uuid.New().String() // no payload to hash, fallback
+	}
+	h := sha256.Sum256(rawPayload)
+	return hex.EncodeToString(h[:])
 }
 
 func (u *ProcessEvent) getUserMetaAndMap(ctx context.Context, userID string) (datatypes.JSON, map[string]interface{}, error) {

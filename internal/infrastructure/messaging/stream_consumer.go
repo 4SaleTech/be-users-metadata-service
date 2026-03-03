@@ -63,10 +63,11 @@ func NewSuperStreamConsumer(cfg StreamConsumerConfig, superStreamName, consumerN
 		log.Debug("stream message handled", "duration_ms", time.Since(start).Milliseconds())
 	}
 
+	// LastConsumed: resume from stored offset after deploy/restart; if no offset stored, start from first.
 	superConsumer, err := env.NewSuperStreamConsumer(superStreamName, handleMessages,
 		stream.NewSuperStreamConsumerOptions().
 			SetConsumerName(consumerName).
-			SetOffset(stream.OffsetSpecification{}.First()))
+			SetOffset(stream.OffsetSpecification{}.LastConsumed()))
 	if err != nil {
 		_ = env.Close()
 		return nil, err
