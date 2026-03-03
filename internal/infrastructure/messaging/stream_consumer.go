@@ -69,7 +69,6 @@ func NewSuperStreamConsumer(cfg StreamConsumerConfig, superStreamName, consumerN
 		log.Debug("stream message handled", "duration_ms", time.Since(start).Milliseconds())
 	}
 
-	// SAC with QueryOffset: explicit resume from stored offset per partition. Works across multiple topics/partitions.
 	sac := stream.NewSingleActiveConsumer(
 		func(partition string, isActive bool) stream.OffsetSpecification {
 			offset, err := env.QueryOffset(consumerName, partition)
@@ -93,7 +92,6 @@ func NewSuperStreamConsumer(cfg StreamConsumerConfig, superStreamName, consumerN
 		return nil, err
 	}
 
-	// Reconnect partitions when they close unexpectedly (network issues, metadata updates).
 	go handlePartitionClose(superConsumer.NotifyPartitionClose(1), env, consumerName, log)
 	return &SuperStreamConsumer{
 		env:             env,

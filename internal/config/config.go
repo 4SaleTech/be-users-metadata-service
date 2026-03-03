@@ -33,7 +33,7 @@ type DBConfig struct {
 }
 
 // RabbitMQConfig holds RabbitMQ connection settings (from env).
-// AMQP (port 5672) uses URL or RABBITMQ_* vars. Stream/Super Stream (port 5552) uses Stream* and same user/password.
+// AMQP (port 5672) uses URL or RABBITMQ_* vars. Stream/Super Stream (port 5552) uses Host and StreamPort.
 type RabbitMQConfig struct {
 	URL           string
 	Prefetch      int
