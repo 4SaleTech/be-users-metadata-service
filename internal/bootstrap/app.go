@@ -155,7 +155,7 @@ func (a *App) runConsumerWorkers(ctx context.Context) error {
 
 	// Super stream consumers: one per event source (stream name = topic_name from event_sources)
 	if a.cfg.RabbitMQ.StreamEnabled {
-		streamlogs.LogLevel = streamlogs.DEBUG
+		streamlogs.LogLevel = streamlogs.INFO
 		streamCfg := infraMessaging.StreamConsumerConfig{
 			Host:     a.cfg.RabbitMQ.Host,
 			Port:     a.cfg.RabbitMQ.StreamPort,
