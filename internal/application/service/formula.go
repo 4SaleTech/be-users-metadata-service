@@ -12,116 +12,117 @@ import (
 // context as rule conditions. Division by zero yields 0.
 func evalFormula(expr string, ctx map[string]interface{}) (float64, error) {
 	expr = strings.TrimSpace(expr)
-	l := &formulaLexer{s: expr, i: 0}
-	l.skipSpace()
-	if l.i >= len(l.s) {
+	lexer := &formulaLexer{source: expr, position: 0}
+	lexer.skipWhitespace()
+	if lexer.position >= len(lexer.source) {
 		return 0, fmt.Errorf("empty formula")
 	}
-	v, err := parseFormulaExpr(l, ctx)
+	value, err := parseAdditiveExpression(lexer, ctx)
 	if err != nil {
 		return 0, err
 	}
-	l.skipSpace()
-	if l.i < len(l.s) {
+	lexer.skipWhitespace()
+	if lexer.position < len(lexer.source) {
 		return 0, fmt.Errorf("unexpected trailing input")
 	}
-	return v, nil
+	return value, nil
 }
 
 type formulaLexer struct {
-	s string
-	i int
+	source   string
+	position int
 }
 
-func (l *formulaLexer) skipSpace() {
-	for l.i < len(l.s) && unicode.IsSpace(rune(l.s[l.i])) {
-		l.i++
+func (l *formulaLexer) skipWhitespace() {
+	for l.position < len(l.source) && unicode.IsSpace(rune(l.source[l.position])) {
+		l.position++
 	}
 }
 
-func parseFormulaExpr(l *formulaLexer, ctx map[string]interface{}) (float64, error) {
-	left, err := parseFormulaTerm(l, ctx)
+func parseAdditiveExpression(lexer *formulaLexer, ctx map[string]interface{}) (float64, error) {
+	accumulator, err := parseMultiplicativeExpression(lexer, ctx)
 	if err != nil {
 		return 0, err
 	}
 	for {
-		l.skipSpace()
-		if l.i >= len(l.s) {
-			return left, nil
+		lexer.skipWhitespace()
+		if lexer.position >= len(lexer.source) {
+			return accumulator, nil
 		}
-		op := l.s[l.i]
-		if op != '+' && op != '-' {
-			return left, nil
+		operator := lexer.source[lexer.position]
+		if operator != '+' && operator != '-' {
+			return accumulator, nil
 		}
-		l.i++
-		right, err := parseFormulaTerm(l, ctx)
+		lexer.position++
+		nextValue, err := parseMultiplicativeExpression(lexer, ctx)
 		if err != nil {
 			return 0, err
 		}
-		if op == '+' {
-			left += right
+		if operator == '+' {
+			accumulator += nextValue
 		} else {
-			left -= right
+			accumulator -= nextValue
 		}
 	}
 }
 
-func parseFormulaTerm(l *formulaLexer, ctx map[string]interface{}) (float64, error) {
-	left, err := parseFormulaFactor(l, ctx)
+func parseMultiplicativeExpression(lexer *formulaLexer, ctx map[string]interface{}) (float64, error) {
+	accumulator, err := parsePrimaryExpression(lexer, ctx)
 	if err != nil {
 		return 0, err
 	}
 	for {
-		l.skipSpace()
-		if l.i >= len(l.s) {
-			return left, nil
+		lexer.skipWhitespace()
+		if lexer.position >= len(lexer.source) {
+			return accumulator, nil
 		}
-		op := l.s[l.i]
-		if op != '*' && op != '/' {
-			return left, nil
+		operator := lexer.source[lexer.position]
+		if operator != '*' && operator != '/' {
+			return accumulator, nil
 		}
-		l.i++
-		right, err := parseFormulaFactor(l, ctx)
+		lexer.position++
+		nextValue, err := parsePrimaryExpression(lexer, ctx)
 		if err != nil {
 			return 0, err
 		}
-		if op == '*' {
-			left *= right
-		} else if right == 0 {
-			left = 0
+		if operator == '*' {
+			accumulator *= nextValue
+		} else if nextValue == 0 {
+			accumulator = 0
 		} else {
-			left /= right
+			accumulator /= nextValue
 		}
 	}
 }
 
-func parseFormulaFactor(l *formulaLexer, ctx map[string]interface{}) (float64, error) {
-	l.skipSpace()
-	if l.i >= len(l.s) {
+func parsePrimaryExpression(lexer *formulaLexer, ctx map[string]interface{}) (float64, error) {
+	lexer.skipWhitespace()
+	if lexer.position >= len(lexer.source) {
 		return 0, fmt.Errorf("unexpected end of formula")
 	}
-	if l.s[l.i] == '-' {
-		l.i++
-		v, err := parseFormulaFactor(l, ctx)
-		return -v, err
+	if lexer.source[lexer.position] == '-' {
+		lexer.position++
+		value, err := parsePrimaryExpression(lexer, ctx)
+		return -value, err
 	}
-	if l.s[l.i] == '(' {
-		l.i++
-		v, err := parseFormulaExpr(l, ctx)
+	if lexer.source[lexer.position] == '(' {
+		lexer.position++
+		value, err := parseAdditiveExpression(lexer, ctx)
 		if err != nil {
 			return 0, err
 		}
-		l.skipSpace()
-		if l.i >= len(l.s) || l.s[l.i] != ')' {
+		lexer.skipWhitespace()
+		if lexer.position >= len(lexer.source) || lexer.source[lexer.position] != ')' {
 			return 0, fmt.Errorf("expected closing parenthesis")
 		}
-		l.i++
-		return v, nil
+		lexer.position++
+		return value, nil
 	}
-	if isFormulaDigit(l.s[l.i]) || (l.s[l.i] == '.' && l.i+1 < len(l.s) && isFormulaDigit(l.s[l.i+1])) {
-		return readFormulaNumber(l)
+	currentChar := lexer.source[lexer.position]
+	if isFormulaDigit(currentChar) || (currentChar == '.' && lexer.position+1 < len(lexer.source) && isFormulaDigit(lexer.source[lexer.position+1])) {
+		return readNumericLiteral(lexer)
 	}
-	path := readFormulaPath(l)
+	path := readVariablePath(lexer)
 	if path == "" {
 		return 0, fmt.Errorf("expected number or path")
 	}
@@ -130,37 +131,37 @@ func parseFormulaFactor(l *formulaLexer, ctx map[string]interface{}) (float64, e
 
 func isFormulaDigit(c byte) bool { return c >= '0' && c <= '9' }
 
-func readFormulaNumber(l *formulaLexer) (float64, error) {
-	start := l.i
-	seenDot := false
-	for l.i < len(l.s) {
-		c := l.s[l.i]
+func readNumericLiteral(lexer *formulaLexer) (float64, error) {
+	start := lexer.position
+	hasDecimalPoint := false
+	for lexer.position < len(lexer.source) {
+		c := lexer.source[lexer.position]
 		if isFormulaDigit(c) {
-			l.i++
+			lexer.position++
 			continue
 		}
-		if c == '.' && !seenDot {
-			seenDot = true
-			l.i++
+		if c == '.' && !hasDecimalPoint {
+			hasDecimalPoint = true
+			lexer.position++
 			continue
 		}
 		break
 	}
-	if start == l.i {
+	if start == lexer.position {
 		return 0, fmt.Errorf("invalid number")
 	}
-	return strconv.ParseFloat(l.s[start:l.i], 64)
+	return strconv.ParseFloat(lexer.source[start:lexer.position], 64)
 }
 
-func readFormulaPath(l *formulaLexer) string {
-	start := l.i
-	for l.i < len(l.s) {
-		c := l.s[l.i]
+func readVariablePath(lexer *formulaLexer) string {
+	start := lexer.position
+	for lexer.position < len(lexer.source) {
+		c := lexer.source[lexer.position]
 		if unicode.IsLetter(rune(c)) || unicode.IsDigit(rune(c)) || c == '_' || c == '.' {
-			l.i++
+			lexer.position++
 			continue
 		}
 		break
 	}
-	return l.s[start:l.i]
+	return lexer.source[start:lexer.position]
 }

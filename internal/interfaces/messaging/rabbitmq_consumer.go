@@ -49,13 +49,9 @@ func eventTypeFromPayload(body []byte) string {
 	var raw struct {
 		Type      string `json:"type"`
 		EventType string `json:"event_type"`
-		Event     json.RawMessage `json:"event"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return "unknown"
-	}
-	if len(raw.Event) > 0 {
-		return eventTypeFromPayload(raw.Event)
 	}
 	if raw.EventType != "" {
 		return raw.EventType

@@ -16,6 +16,7 @@ type Config struct {
 	UsersDB    DBConfig // classified8 (clas_users); same host/user, different database name
 	RabbitMQ   RabbitMQConfig
 	Processing ProcessingConfig
+	Server     ServerConfig
 	Log        LogConfig
 }
 
@@ -50,6 +51,11 @@ type ProcessingConfig struct {
 	BatchSize int
 }
 
+// ServerConfig holds HTTP/graceful shutdown settings.
+type ServerConfig struct {
+	ShutdownTimeout time.Duration
+}
+
 // Load reads configuration from environment variables.
 // Values from the OS environment take precedence; if unset, variables are loaded from .env (if present).
 //
@@ -62,6 +68,7 @@ func Load() *Config {
 		UsersDB:    loadUsersDBConfig(),
 		RabbitMQ:   loadRabbitMQConfig(),
 		Processing: loadProcessingConfig(),
+		Server:     loadServerConfig(),
 		Log:        loadLogConfig(),
 	}
 }
@@ -124,6 +131,12 @@ func loadProcessingConfig() ProcessingConfig {
 	return ProcessingConfig{
 		Workers:   getEnvInt("WORKERS", 5),
 		BatchSize: getEnvInt("BATCH_SIZE", 100),
+	}
+}
+
+func loadServerConfig() ServerConfig {
+	return ServerConfig{
+		ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
 	}
 }
 
