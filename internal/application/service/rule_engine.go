@@ -11,6 +11,8 @@ import (
 	"github.com/be-users-metadata-service/internal/domain"
 )
 
+var metadataKeyTemplateRe = regexp.MustCompile(`\$\{([^}]+)\}`)
+
 // RuleEngine evaluates conditions, resolves values, and evaluates rules to produce metadata operations.
 type RuleEngine struct{}
 
@@ -41,6 +43,8 @@ func (e *RuleEngine) ResolveValue(ctx context.Context, valueSource, valueTemplat
 		return getByPath(ctxMap, "event."+valueTemplate), nil
 	case domain.ValueSourceMetadata:
 		return getByPath(ctxMap, "metadata."+valueTemplate), nil
+	case domain.ValueSourceFormula:
+		return evalFormula(valueTemplate, ctxMap)
 	default:
 		return getByPath(ctxMap, "event."+valueTemplate), nil
 	}
@@ -55,16 +59,71 @@ func (e *RuleEngine) EvaluateRules(ctx context.Context, event *domain.Event, rul
 			if err != nil || !ok {
 				continue
 			}
+			ctxMap := buildContext(event, metaMap)
+			resolvedKey, keyOK := resolveMetadataKey(action.MetadataKey, ctxMap)
+			if !keyOK {
+				continue
+			}
 			val, err := e.ResolveValue(ctx, action.ValueSource, action.ValueTemplate, event, metaMap)
 			if err != nil {
 				continue
 			}
-			op := domain.MetadataOperation{Key: action.MetadataKey, Op: action.Operation, Value: val}
+			op := domain.MetadataOperation{Key: resolvedKey, Op: action.Operation, Value: val}
 			operations = append(operations, op)
 			applyOpToMap(metaMap, op)
 		}
 	}
 	return operations, nil
+}
+
+func resolveMetadataKey(key string, ctx map[string]interface{}) (string, bool) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", false
+	}
+	if !metadataKeyTemplateRe.MatchString(key) {
+		return key, true
+	}
+	ok := true
+	out := metadataKeyTemplateRe.ReplaceAllStringFunc(key, func(match string) string {
+		sub := metadataKeyTemplateRe.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			ok = false
+			return ""
+		}
+		path := strings.TrimSpace(sub[1])
+		val := getByPath(ctx, path)
+		if val == nil {
+			ok = false
+			return ""
+		}
+		return formatMetadataKeySegment(val)
+	})
+	if !ok {
+		return "", false
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return "", false
+	}
+	return out, true
+}
+
+func formatMetadataKeySegment(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch x := v.(type) {
+	case float64:
+		if x == float64(int64(x)) {
+			return strconv.FormatInt(int64(x), 10)
+		}
+		return strconv.FormatFloat(x, 'g', -1, 64)
+	case string:
+		return x
+	default:
+		return toString(v)
+	}
 }
 
 func buildContext(event *domain.Event, metadata map[string]interface{}) map[string]interface{} {

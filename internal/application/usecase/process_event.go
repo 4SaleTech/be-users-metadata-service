@@ -106,7 +106,7 @@ func (u *ProcessEvent) ProcessEvent(ctx context.Context, event domain.Event, raw
 	log.Debug("rules evaluated", "operations", len(operations))
 	if len(operations) == 0 {
 		log.Info("no operations applied, recording processed only")
-		if err := u.idempotency.RecordProcessedOnly(ctx, eventID, rawPayload); err != nil {
+		if err := u.idempotency.RecordProcessedOnly(ctx, eventID, &event, rawPayload); err != nil {
 			log.Error("record processed only failed", "error", err)
 			return err
 		}
@@ -120,7 +120,7 @@ func (u *ProcessEvent) ProcessEvent(ctx context.Context, event domain.Event, raw
 		return err
 	}
 
-	if err := u.idempotency.RecordSuccess(ctx, userID, newMeta, eventID, rawPayload); err != nil {
+	if err := u.idempotency.RecordSuccess(ctx, userID, newMeta, eventID, &event, rawPayload); err != nil {
 		log.Error("record success failed", "error", err)
 		return err
 	}

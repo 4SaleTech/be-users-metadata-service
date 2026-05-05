@@ -20,7 +20,10 @@ type Event struct {
 }
 
 // UnmarshalJSON supports "event_type" as alias for "type" so payloads with event_type work.
+// If the JSON is a publish envelope with a nested "event" object (topic / routing_key / event),
+// the inner object is unmarshalled so user_id and type are found.
 func (e *Event) UnmarshalJSON(data []byte) error {
+	payload := unwrapEnvelopeEventJSON(data)
 	var raw struct {
 		ID        string          `json:"id"`
 		Type      string          `json:"type"`
@@ -31,7 +34,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 		Data      json.RawMessage `json:"data,omitempty"`
 		UserID    string          `json:"user_id,omitempty"`
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := json.Unmarshal(payload, &raw); err != nil {
 		return err
 	}
 	e.ID = raw.ID
@@ -45,6 +48,22 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	e.Data = raw.Data
 	e.UserID = raw.UserID
 	return nil
+}
+
+// unwrapEnvelopeEventJSON returns inner "event" JSON when the payload looks like
+// {"topic":"...","routing_key":"...","event":{...}}; otherwise returns data unchanged.
+func unwrapEnvelopeEventJSON(data []byte) []byte {
+	var envelope struct {
+		Event json.RawMessage `json:"event"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil || len(envelope.Event) == 0 || !json.Valid(envelope.Event) {
+		return data
+	}
+	var probe map[string]interface{}
+	if err := json.Unmarshal(envelope.Event, &probe); err != nil || len(probe) == 0 {
+		return data
+	}
+	return envelope.Event
 }
 
 // EventID returns a stable idempotency key (e.g. from headers or body).

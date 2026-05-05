@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -14,7 +15,6 @@ type Config struct {
 	DB         DBConfig
 	UsersDB    DBConfig // classified8 (clas_users); same host/user, different database name
 	RabbitMQ   RabbitMQConfig
-	Server     ServerConfig
 	Processing ProcessingConfig
 	Log        LogConfig
 }
@@ -44,11 +44,6 @@ type RabbitMQConfig struct {
 	StreamPort    int
 }
 
-// ServerConfig holds HTTP/graceful shutdown settings.
-type ServerConfig struct {
-	ShutdownTimeout time.Duration
-}
-
 // ProcessingConfig holds consumer and processing settings.
 type ProcessingConfig struct {
 	Workers   int
@@ -61,20 +56,37 @@ type ProcessingConfig struct {
 // Database: use DATABASE_URL, or build from DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME.
 // RabbitMQ: use RABBITMQ_URL, or build from RABBITMQ_USER, RABBITMQ_PASSWORD, RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_VHOST.
 func Load() *Config {
-	loadEnvFile(".env")
+	loadEnvFiles()
 	return &Config{
 		DB:         loadDBConfig(),
 		UsersDB:    loadUsersDBConfig(),
 		RabbitMQ:   loadRabbitMQConfig(),
-		Server:     loadServerConfig(),
 		Processing: loadProcessingConfig(),
 		Log:        loadLogConfig(),
 	}
 }
 
-// loadEnvFile loads variables from path into the environment (does not override existing).
-func loadEnvFile(path string) {
-	_ = godotenv.Load(path)
+// loadEnvFiles loads the first .env found in the current directory or a few parents
+// (so `go run ./cmd` from repo root or from ./cmd still picks up project .env). Does not override existing env vars.
+func loadEnvFiles() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+	dir := cwd
+	for i := 0; i < 6; i++ {
+		p := filepath.Join(dir, ".env")
+		if fi, statErr := os.Stat(p); statErr == nil && !fi.IsDir() {
+			_ = godotenv.Load(p)
+			return
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	_ = godotenv.Load(".env")
 }
 
 func loadDBConfig() DBConfig {
@@ -108,12 +120,6 @@ func loadRabbitMQConfig() RabbitMQConfig {
 	}
 }
 
-func loadServerConfig() ServerConfig {
-	return ServerConfig{
-		ShutdownTimeout: getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
-	}
-}
-
 func loadProcessingConfig() ProcessingConfig {
 	return ProcessingConfig{
 		Workers:   getEnvInt("WORKERS", 5),
@@ -137,7 +143,8 @@ func buildDBDSN(dbName string) string {
 	host := getEnv("DB_HOST", "localhost")
 	port := getEnv("DB_PORT", "3306")
 	charset := getEnv("DB_CHARSET", "utf8mb4")
-	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=True",
+	// readTimeout/writeTimeout prevent indefinite hangs on lost RDS/network (go-sql-driver/mysql).
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=True&readTimeout=90s&writeTimeout=90s",
 		user, password, host, port, dbName, charset,
 	)
 }
