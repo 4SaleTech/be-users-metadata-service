@@ -253,19 +253,20 @@ func toString(v interface{}) string {
 func applyOpToMap(meta map[string]interface{}, op domain.MetadataOperation) {
 	switch op.Op {
 	case domain.OpSet:
-		meta[op.Key] = op.Value
+		setByPath(meta, op.Key, op.Value)
 	case domain.OpIncrement:
-		meta[op.Key] = util.ToFloat(meta[op.Key]) + util.ToFloat(op.Value)
+		setByPath(meta, op.Key, util.ToFloat(getByPath(meta, op.Key))+util.ToFloat(op.Value))
 	case domain.OpAppend:
-		slice, _ := meta[op.Key].([]interface{})
+		existing := getByPath(meta, op.Key)
+		slice, _ := existing.([]interface{})
 		if slice == nil {
 			slice = []interface{}{}
 		}
-		meta[op.Key] = append(slice, op.Value)
+		setByPath(meta, op.Key, append(slice, op.Value))
 	case domain.OpRemove:
-		delete(meta, op.Key)
+		deleteByPath(meta, op.Key)
 	case domain.OpMerge:
-		existing, _ := meta[op.Key].(map[string]interface{})
+		existing, _ := getByPath(meta, op.Key).(map[string]interface{})
 		if existing == nil {
 			existing = make(map[string]interface{})
 		}
@@ -274,18 +275,52 @@ func applyOpToMap(meta map[string]interface{}, op domain.MetadataOperation) {
 				existing[k] = v
 			}
 		}
-		meta[op.Key] = existing
+		setByPath(meta, op.Key, existing)
 	case domain.OpMax:
-		a, b := util.ToFloat(meta[op.Key]), util.ToFloat(op.Value)
+		a, b := util.ToFloat(getByPath(meta, op.Key)), util.ToFloat(op.Value)
 		if b > a {
-			meta[op.Key] = b
+			setByPath(meta, op.Key, b)
 		}
 	case domain.OpMin:
-		a, b := util.ToFloat(meta[op.Key]), util.ToFloat(op.Value)
+		a, b := util.ToFloat(getByPath(meta, op.Key)), util.ToFloat(op.Value)
 		if a == 0 || b < a {
-			meta[op.Key] = b
+			setByPath(meta, op.Key, b)
 		}
 	default:
-		meta[op.Key] = op.Value
+		setByPath(meta, op.Key, op.Value)
 	}
+}
+
+func setByPath(meta map[string]interface{}, path string, value interface{}) {
+	keys := strings.Split(path, ".")
+	if len(keys) == 0 {
+		return
+	}
+	cur := meta
+	for i := 0; i < len(keys)-1; i++ {
+		k := keys[i]
+		next, ok := cur[k].(map[string]interface{})
+		if !ok || next == nil {
+			next = make(map[string]interface{})
+			cur[k] = next
+		}
+		cur = next
+	}
+	cur[keys[len(keys)-1]] = value
+}
+
+func deleteByPath(meta map[string]interface{}, path string) {
+	keys := strings.Split(path, ".")
+	if len(keys) == 0 {
+		return
+	}
+	cur := meta
+	for i := 0; i < len(keys)-1; i++ {
+		next, ok := cur[keys[i]].(map[string]interface{})
+		if !ok || next == nil {
+			return
+		}
+		cur = next
+	}
+	delete(cur, keys[len(keys)-1])
 }

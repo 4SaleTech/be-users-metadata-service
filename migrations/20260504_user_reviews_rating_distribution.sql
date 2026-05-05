@@ -48,22 +48,22 @@ INSERT INTO metadata_rules (id, event_type, event_version, enabled, priority, de
 
 -- rating.updated — actions
 INSERT INTO metadata_rule_actions (id, rule_id, operation, metadata_key, value_source, value_template, condition_expression, execution_order) VALUES
-('14e89a01-2124-11f1-8b87-068146e4f801', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_1', 'formula', 'event.data.rating.1', '', 0),
-('14e89a02-2124-11f1-8b87-068146e4f802', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_2', 'formula', 'event.data.rating.2', '', 1),
-('14e89a03-2124-11f1-8b87-068146e4f803', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_3', 'formula', 'event.data.rating.3', '', 2),
-('14e89a04-2124-11f1-8b87-068146e4f804', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_4', 'formula', 'event.data.rating.4', '', 3),
-('14e89a05-2124-11f1-8b87-068146e4f805', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_5', 'formula', 'event.data.rating.5', '', 4),
-('14e89a06-2124-11f1-8b87-068146e4f806', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_avg', 'formula',
- '(1*metadata.ratings_dist_1+2*metadata.ratings_dist_2+3*metadata.ratings_dist_3+4*metadata.ratings_dist_4+5*metadata.ratings_dist_5)/(metadata.ratings_dist_1+metadata.ratings_dist_2+metadata.ratings_dist_3+metadata.ratings_dist_4+metadata.ratings_dist_5)',
+('14e89a01-2124-11f1-8b87-068146e4f801', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_1', 'formula', 'event.data.rating.1', '', 0),
+('14e89a02-2124-11f1-8b87-068146e4f802', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_2', 'formula', 'event.data.rating.2', '', 1),
+('14e89a03-2124-11f1-8b87-068146e4f803', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_3', 'formula', 'event.data.rating.3', '', 2),
+('14e89a04-2124-11f1-8b87-068146e4f804', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_4', 'formula', 'event.data.rating.4', '', 3),
+('14e89a05-2124-11f1-8b87-068146e4f805', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_5', 'formula', 'event.data.rating.5', '', 4),
+('14e89a06-2124-11f1-8b87-068146e4f806', '14e899b7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_avg', 'formula',
+ '(1*metadata.rating.ratings_dist_1+2*metadata.rating.ratings_dist_2+3*metadata.rating.ratings_dist_3+4*metadata.rating.ratings_dist_4+5*metadata.rating.ratings_dist_5)/(metadata.rating.ratings_dist_1+metadata.rating.ratings_dist_2+metadata.rating.ratings_dist_3+metadata.rating.ratings_dist_4+metadata.rating.ratings_dist_5)',
  '', 5);
 
 -- user.rating.v1 — same actions (different rule_id + action ids)
 INSERT INTO metadata_rule_actions (id, rule_id, operation, metadata_key, value_source, value_template, condition_expression, execution_order) VALUES
-('14e89b01-2124-11f1-8b87-068146e4f901', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_1', 'formula', 'event.data.rating.1', '', 0),
-('14e89b02-2124-11f1-8b87-068146e4f902', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_2', 'formula', 'event.data.rating.2', '', 1),
-('14e89b03-2124-11f1-8b87-068146e4f903', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_3', 'formula', 'event.data.rating.3', '', 2),
-('14e89b04-2124-11f1-8b87-068146e4f904', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_4', 'formula', 'event.data.rating.4', '', 3),
-('14e89b05-2124-11f1-8b87-068146e4f905', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_dist_5', 'formula', 'event.data.rating.5', '', 4),
-('14e89b06-2124-11f1-8b87-068146e4f906', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'ratings_avg', 'formula',
- '(1*metadata.ratings_dist_1+2*metadata.ratings_dist_2+3*metadata.ratings_dist_3+4*metadata.ratings_dist_4+5*metadata.ratings_dist_5)/(metadata.ratings_dist_1+metadata.ratings_dist_2+metadata.ratings_dist_3+metadata.ratings_dist_4+metadata.ratings_dist_5)',
+('14e89b01-2124-11f1-8b87-068146e4f901', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_1', 'formula', 'event.data.rating.1', '', 0),
+('14e89b02-2124-11f1-8b87-068146e4f902', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_2', 'formula', 'event.data.rating.2', '', 1),
+('14e89b03-2124-11f1-8b87-068146e4f903', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_3', 'formula', 'event.data.rating.3', '', 2),
+('14e89b04-2124-11f1-8b87-068146e4f904', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_4', 'formula', 'event.data.rating.4', '', 3),
+('14e89b05-2124-11f1-8b87-068146e4f905', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_dist_5', 'formula', 'event.data.rating.5', '', 4),
+('14e89b06-2124-11f1-8b87-068146e4f906', '14e899c7-2124-11f1-8b87-068146e4f871', 'set', 'rating.ratings_avg', 'formula',
+ '(1*metadata.rating.ratings_dist_1+2*metadata.rating.ratings_dist_2+3*metadata.rating.ratings_dist_3+4*metadata.rating.ratings_dist_4+5*metadata.rating.ratings_dist_5)/(metadata.rating.ratings_dist_1+metadata.rating.ratings_dist_2+metadata.rating.ratings_dist_3+metadata.rating.ratings_dist_4+metadata.rating.ratings_dist_5)',
  '', 5);
