@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -54,7 +55,14 @@ func (e *RuleEngine) ResolveValue(ctx context.Context, valueSource, valueTemplat
 func (e *RuleEngine) EvaluateRules(ctx context.Context, event *domain.Event, rules []domain.MetadataRule, metaMap map[string]interface{}) ([]domain.MetadataOperation, error) {
 	var operations []domain.MetadataOperation
 	for _, rule := range rules {
-		for _, action := range rule.Actions {
+		actions := append([]domain.MetadataRuleAction(nil), rule.Actions...)
+		sort.Slice(actions, func(i, j int) bool {
+			if actions[i].ExecutionOrder != actions[j].ExecutionOrder {
+				return actions[i].ExecutionOrder < actions[j].ExecutionOrder
+			}
+			return actions[i].ID.String() < actions[j].ID.String()
+		})
+		for _, action := range actions {
 			ok, err := e.EvaluateCondition(ctx, action.ConditionExpression, event, metaMap)
 			if err != nil || !ok {
 				continue
@@ -73,7 +81,44 @@ func (e *RuleEngine) EvaluateRules(ctx context.Context, event *domain.Event, rul
 			applyOpToMap(metaMap, op)
 		}
 	}
+	syncRatingAvgFromDistribution(metaMap, &operations)
 	return operations, nil
+}
+
+// syncRatingAvgFromDistribution sets rating.ratings_avg from ratings_dist_1..5 when those keys
+// exist under rating. This runs after all rule actions so the average always reflects the
+// latest histogram in metaMap, independent of action ordering, formula failures, or how
+// many rules touched the dist fields.
+func syncRatingAvgFromDistribution(meta map[string]interface{}, operations *[]domain.MetadataOperation) {
+	rating, ok := meta["rating"].(map[string]interface{})
+	if !ok || rating == nil {
+		return
+	}
+	var seen bool
+	var sumCount, sumWeighted float64
+	for star := 1; star <= 5; star++ {
+		key := "ratings_dist_" + strconv.Itoa(star)
+		raw, ok := rating[key]
+		if !ok {
+			continue
+		}
+		seen = true
+		c := toFloat(raw)
+		sumCount += c
+		sumWeighted += float64(star) * c
+	}
+	if !seen {
+		return
+	}
+	var avg float64
+	if sumCount == 0 {
+		avg = 0
+	} else {
+		avg = sumWeighted / sumCount
+	}
+	op := domain.MetadataOperation{Key: "rating.ratings_avg", Op: domain.OpSet, Value: avg}
+	*operations = append(*operations, op)
+	applyOpToMap(meta, op)
 }
 
 func resolveMetadataKey(key string, ctx map[string]interface{}) (string, bool) {

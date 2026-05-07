@@ -7,6 +7,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/rabbitmq/rabbitmq-stream-go-client v1.7.0
+	github.com/robertkrimen/otto v0.5.1
 	gorm.io/datatypes v1.2.0
 	gorm.io/driver/mysql v1.5.4
 	gorm.io/gorm v1.25.9
@@ -29,4 +30,6 @@ require (
 	go.opentelemetry.io/otel v1.40.0 // indirect
 	go.opentelemetry.io/otel/metric v1.40.0 // indirect
 	go.opentelemetry.io/otel/trace v1.40.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
+	gopkg.in/sourcemap.v1 v1.0.5 // indirect
 )
