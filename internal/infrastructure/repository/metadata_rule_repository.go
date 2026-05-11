@@ -28,7 +28,9 @@ func (r *MetadataRuleRepository) FindByEventTypeAndVersion(ctx context.Context, 
 	} else {
 		q = q.Where("(event_version = '' OR event_version IS NULL)")
 	}
-	if err := q.Preload("Actions").Order("priority DESC").Find(&rows).Error; err != nil {
+	if err := q.Preload("Actions", func(db *gorm.DB) *gorm.DB {
+		return db.Order("execution_order ASC")
+	}).Order("priority DESC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.MetadataRule, len(rows))
@@ -41,7 +43,9 @@ func (r *MetadataRuleRepository) FindByEventTypeAndVersion(ctx context.Context, 
 // ListAllEnabled returns all enabled rules with actions (for cache warming).
 func (r *MetadataRuleRepository) ListAllEnabled(ctx context.Context) ([]domain.MetadataRule, error) {
 	var rows []entity.MetadataRule
-	if err := r.db.WithContext(ctx).Where("enabled = ?", true).Preload("Actions").Order("priority DESC").Find(&rows).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("enabled = ?", true).Preload("Actions", func(db *gorm.DB) *gorm.DB {
+		return db.Order("execution_order ASC")
+	}).Order("priority DESC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := make([]domain.MetadataRule, len(rows))

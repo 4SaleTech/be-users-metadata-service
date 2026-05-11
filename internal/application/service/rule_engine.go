@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/be-users-metadata-service/internal/application/util"
 	"github.com/be-users-metadata-service/internal/domain"
 )
+
+var metadataKeyTemplateRe = regexp.MustCompile(`\$\{([^}]+)\}`)
 
 // RuleEngine evaluates conditions, resolves values, and evaluates rules to produce metadata operations.
 type RuleEngine struct{}
@@ -41,6 +44,8 @@ func (e *RuleEngine) ResolveValue(ctx context.Context, valueSource, valueTemplat
 		return getByPath(ctxMap, "event."+valueTemplate), nil
 	case domain.ValueSourceMetadata:
 		return getByPath(ctxMap, "metadata."+valueTemplate), nil
+	case domain.ValueSourceFormula:
+		return evalFormula(valueTemplate, ctxMap)
 	default:
 		return getByPath(ctxMap, "event."+valueTemplate), nil
 	}
@@ -50,21 +55,120 @@ func (e *RuleEngine) ResolveValue(ctx context.Context, valueSource, valueTemplat
 func (e *RuleEngine) EvaluateRules(ctx context.Context, event *domain.Event, rules []domain.MetadataRule, metaMap map[string]interface{}) ([]domain.MetadataOperation, error) {
 	var operations []domain.MetadataOperation
 	for _, rule := range rules {
-		for _, action := range rule.Actions {
+		actions := append([]domain.MetadataRuleAction(nil), rule.Actions...)
+		sort.Slice(actions, func(i, j int) bool {
+			if actions[i].ExecutionOrder != actions[j].ExecutionOrder {
+				return actions[i].ExecutionOrder < actions[j].ExecutionOrder
+			}
+			return actions[i].ID.String() < actions[j].ID.String()
+		})
+		for _, action := range actions {
 			ok, err := e.EvaluateCondition(ctx, action.ConditionExpression, event, metaMap)
 			if err != nil || !ok {
+				continue
+			}
+			ctxMap := buildContext(event, metaMap)
+			resolvedKey, keyOK := resolveMetadataKey(action.MetadataKey, ctxMap)
+			if !keyOK {
 				continue
 			}
 			val, err := e.ResolveValue(ctx, action.ValueSource, action.ValueTemplate, event, metaMap)
 			if err != nil {
 				continue
 			}
-			op := domain.MetadataOperation{Key: action.MetadataKey, Op: action.Operation, Value: val}
+			op := domain.MetadataOperation{Key: resolvedKey, Op: action.Operation, Value: val}
 			operations = append(operations, op)
 			applyOpToMap(metaMap, op)
 		}
 	}
+	syncRatingAvgFromDistribution(metaMap, &operations)
 	return operations, nil
+}
+
+// syncRatingAvgFromDistribution sets rating.ratings_avg from ratings_dist_1..5 when those keys
+// exist under rating. This runs after all rule actions so the average always reflects the
+// latest histogram in metaMap, independent of action ordering, formula failures, or how
+// many rules touched the dist fields.
+func syncRatingAvgFromDistribution(meta map[string]interface{}, operations *[]domain.MetadataOperation) {
+	rating, ok := meta["rating"].(map[string]interface{})
+	if !ok || rating == nil {
+		return
+	}
+	var seen bool
+	var sumCount, sumWeighted float64
+	for star := 1; star <= 5; star++ {
+		key := "ratings_dist_" + strconv.Itoa(star)
+		raw, ok := rating[key]
+		if !ok {
+			continue
+		}
+		seen = true
+		c := toFloat(raw)
+		sumCount += c
+		sumWeighted += float64(star) * c
+	}
+	if !seen {
+		return
+	}
+	var avg float64
+	if sumCount == 0 {
+		avg = 0
+	} else {
+		avg = sumWeighted / sumCount
+	}
+	op := domain.MetadataOperation{Key: "rating.ratings_avg", Op: domain.OpSet, Value: avg}
+	*operations = append(*operations, op)
+	applyOpToMap(meta, op)
+}
+
+func resolveMetadataKey(key string, ctx map[string]interface{}) (string, bool) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", false
+	}
+	if !metadataKeyTemplateRe.MatchString(key) {
+		return key, true
+	}
+	ok := true
+	out := metadataKeyTemplateRe.ReplaceAllStringFunc(key, func(match string) string {
+		sub := metadataKeyTemplateRe.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			ok = false
+			return ""
+		}
+		path := strings.TrimSpace(sub[1])
+		val := getByPath(ctx, path)
+		if val == nil {
+			ok = false
+			return ""
+		}
+		return formatMetadataKeySegment(val)
+	})
+	if !ok {
+		return "", false
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return "", false
+	}
+	return out, true
+}
+
+func formatMetadataKeySegment(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch x := v.(type) {
+	case float64:
+		if x == float64(int64(x)) {
+			return strconv.FormatInt(int64(x), 10)
+		}
+		return strconv.FormatFloat(x, 'g', -1, 64)
+	case string:
+		return x
+	default:
+		return toString(v)
+	}
 }
 
 func buildContext(event *domain.Event, metadata map[string]interface{}) map[string]interface{} {
@@ -194,19 +298,20 @@ func toString(v interface{}) string {
 func applyOpToMap(meta map[string]interface{}, op domain.MetadataOperation) {
 	switch op.Op {
 	case domain.OpSet:
-		meta[op.Key] = op.Value
+		setByPath(meta, op.Key, op.Value)
 	case domain.OpIncrement:
-		meta[op.Key] = util.ToFloat(meta[op.Key]) + util.ToFloat(op.Value)
+		setByPath(meta, op.Key, util.ToFloat(getByPath(meta, op.Key))+util.ToFloat(op.Value))
 	case domain.OpAppend:
-		slice, _ := meta[op.Key].([]interface{})
+		existing := getByPath(meta, op.Key)
+		slice, _ := existing.([]interface{})
 		if slice == nil {
 			slice = []interface{}{}
 		}
-		meta[op.Key] = append(slice, op.Value)
+		setByPath(meta, op.Key, append(slice, op.Value))
 	case domain.OpRemove:
-		delete(meta, op.Key)
+		deleteByPath(meta, op.Key)
 	case domain.OpMerge:
-		existing, _ := meta[op.Key].(map[string]interface{})
+		existing, _ := getByPath(meta, op.Key).(map[string]interface{})
 		if existing == nil {
 			existing = make(map[string]interface{})
 		}
@@ -215,18 +320,52 @@ func applyOpToMap(meta map[string]interface{}, op domain.MetadataOperation) {
 				existing[k] = v
 			}
 		}
-		meta[op.Key] = existing
+		setByPath(meta, op.Key, existing)
 	case domain.OpMax:
-		a, b := util.ToFloat(meta[op.Key]), util.ToFloat(op.Value)
+		a, b := util.ToFloat(getByPath(meta, op.Key)), util.ToFloat(op.Value)
 		if b > a {
-			meta[op.Key] = b
+			setByPath(meta, op.Key, b)
 		}
 	case domain.OpMin:
-		a, b := util.ToFloat(meta[op.Key]), util.ToFloat(op.Value)
+		a, b := util.ToFloat(getByPath(meta, op.Key)), util.ToFloat(op.Value)
 		if a == 0 || b < a {
-			meta[op.Key] = b
+			setByPath(meta, op.Key, b)
 		}
 	default:
-		meta[op.Key] = op.Value
+		setByPath(meta, op.Key, op.Value)
 	}
+}
+
+func setByPath(meta map[string]interface{}, path string, value interface{}) {
+	keys := strings.Split(path, ".")
+	if len(keys) == 0 {
+		return
+	}
+	cur := meta
+	for i := 0; i < len(keys)-1; i++ {
+		k := keys[i]
+		next, ok := cur[k].(map[string]interface{})
+		if !ok || next == nil {
+			next = make(map[string]interface{})
+			cur[k] = next
+		}
+		cur = next
+	}
+	cur[keys[len(keys)-1]] = value
+}
+
+func deleteByPath(meta map[string]interface{}, path string) {
+	keys := strings.Split(path, ".")
+	if len(keys) == 0 {
+		return
+	}
+	cur := meta
+	for i := 0; i < len(keys)-1; i++ {
+		next, ok := cur[keys[i]].(map[string]interface{})
+		if !ok || next == nil {
+			return
+		}
+		cur = next
+	}
+	delete(cur, keys[len(keys)-1])
 }

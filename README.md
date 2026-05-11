@@ -13,7 +13,7 @@ Go service that consumes events from RabbitMQ, evaluates metadata rules, and app
 1. Consumer receives a message from a queue bound to a topic (from `event_sources`).
 2. **Idempotency**: Check `processed_events` by `event_id`; skip if already processed.
 3. Load matching rules from cache/DB (`metadata_rules` + `metadata_rule_actions`) by `event_type` (and optional `event_version`).
-4. For each rule action: evaluate `condition_expression`, resolve `value_template` (static/event/metadata), collect key-level operations.
+4. For each rule action (ordered by `execution_order`): evaluate `condition_expression`, resolve `metadata_key` (literal or templated, e.g. `bucket_${event.data.tier}`), resolve `value_template` (static/event/metadata/formula), collect key-level operations.
 5. Compute new `meta_data` from current JSONB and operations.
 6. **Atomic transaction**: update `users.meta_data` and insert into `processed_events`.
 7. On any processing error: insert into `failed_events` and Nack (or record and Ack, depending on policy).
@@ -24,7 +24,7 @@ Tables (GORM AutoMigrate):
 
 - `event_sources` — topic name, enabled.
 - `metadata_rules` — event_type, event_version, enabled, priority, description.
-- `metadata_rule_actions` — rule_id, operation, metadata_key, value_source, value_template, condition_expression, execution_order.
+- `metadata_rule_actions` — rule_id, operation, metadata_key, value_source (`static` \| `event` \| `metadata` \| `formula`), value_template, condition_expression, execution_order.
 - `processed_events` — event_id (PK), event_json (JSON), processed_at.
 - `failed_events` — id, event_type, payload (JSON), error_message, created_at, processed_at.
 - `users` — id (CHAR(36)), meta_data (JSON), updated_at.

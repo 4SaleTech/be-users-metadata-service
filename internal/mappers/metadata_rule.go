@@ -1,6 +1,8 @@
 package mappers
 
 import (
+	"sort"
+
 	"github.com/be-users-metadata-service/internal/domain"
 	"github.com/be-users-metadata-service/internal/infrastructure/entity"
 )
@@ -20,6 +22,12 @@ func MetadataRuleToDomain(r entity.MetadataRule) domain.MetadataRule {
 	for idx := range r.Actions {
 		rule.Actions[idx] = MetadataRuleActionToDomain(r.Actions[idx])
 	}
+	sort.Slice(rule.Actions, func(i, j int) bool {
+		if rule.Actions[i].ExecutionOrder != rule.Actions[j].ExecutionOrder {
+			return rule.Actions[i].ExecutionOrder < rule.Actions[j].ExecutionOrder
+		}
+		return rule.Actions[i].ID.String() < rule.Actions[j].ID.String()
+	})
 	return rule
 }
 
